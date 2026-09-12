@@ -1,0 +1,6 @@
+find_path(PCRE2_INCLUDE_DIR NAMES pcre2.h)
+find_library(PCRE2_LIBRARY NAMES pcre2-8)
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(PCRE2 REQUIRED_VARS PCRE2_INCLUDE_DIR PCRE2_LIBRARY)
+set(PCRE2_INCLUDE_DIRS ${PCRE2_INCLUDE_DIR})
+set(PCRE2_LIBRARIES ${PCRE2_LIBRARY})

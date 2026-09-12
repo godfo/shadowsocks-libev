@@ -96,6 +96,7 @@
 #define CHACHA20IETF        20
 
 const char *supported_stream_ciphers[STREAM_CIPHER_NUM] = {
+    // [cli-stream-ciphers]
     "table",
     "rc4",
     "rc4-md5",
@@ -117,6 +118,7 @@ const char *supported_stream_ciphers[STREAM_CIPHER_NUM] = {
     "salsa20",
     "chacha20",
     "chacha20-ietf"
+    // [cli-stream-ciphers]
 };
 
 static const char *supported_stream_ciphers_mbedtls[STREAM_CIPHER_NUM] = {
@@ -344,8 +346,7 @@ stream_encrypt_all(buffer_t *plaintext, cipher_t *cipher, size_t capacity)
     dump("NONCE", ciphertext->data, nonce_len);
 #endif
 
-    brealloc(plaintext, nonce_len + ciphertext->len, capacity);
-    memcpy(plaintext->data, ciphertext->data, nonce_len + ciphertext->len);
+    bswap_data(plaintext, ciphertext);
     plaintext->len = nonce_len + ciphertext->len;
 
     return CRYPTO_OK;
@@ -392,7 +393,7 @@ stream_encrypt(buffer_t *plaintext, cipher_ctx_t *cipher_ctx, size_t capacity)
         }
         crypto_stream_xor_ic((uint8_t *)(ciphertext->data + nonce_len),
                              (const uint8_t *)plaintext->data,
-                             (uint64_t)(plaintext->len + padding),
+                             (uint64_t)plaintext->len + padding,
                              (const uint8_t *)cipher_ctx->nonce,
                              cipher_ctx->counter / SODIUM_BLOCK_SIZE, cipher->key,
                              cipher->method);
@@ -416,8 +417,7 @@ stream_encrypt(buffer_t *plaintext, cipher_ctx_t *cipher_ctx, size_t capacity)
     dump("CIPHER", ciphertext->data + nonce_len, ciphertext->len);
 #endif
 
-    brealloc(plaintext, nonce_len + ciphertext->len, capacity);
-    memcpy(plaintext->data, ciphertext->data, nonce_len + ciphertext->len);
+    bswap_data(plaintext, ciphertext);
     plaintext->len = nonce_len + ciphertext->len;
 
     return CRYPTO_OK;
@@ -475,8 +475,7 @@ stream_decrypt_all(buffer_t *ciphertext, cipher_t *cipher, size_t capacity)
 
     ppbloom_add((void *)nonce, nonce_len);
 
-    brealloc(ciphertext, plaintext->len, capacity);
-    memcpy(ciphertext->data, plaintext->data, plaintext->len);
+    bswap_data(ciphertext, plaintext);
     ciphertext->len = plaintext->len;
 
     return CRYPTO_OK;
@@ -528,11 +527,20 @@ stream_decrypt(buffer_t *ciphertext, cipher_ctx_t *cipher_ctx, size_t capacity)
         cipher_ctx->counter = 0;
         cipher_ctx->init    = 1;
 
+        /*
+         * Register the IV as soon as it is known to be fresh. Deferring the
+         * add until after the payload is decrypted leaves a window in which a
+         * peer that sends exactly nonce_len bytes returns CRYPTO_NEED_MORE
+         * below with the IV checked but not yet recorded, so a concurrent
+         * connection replaying the same IV would pass ppbloom_check().
+         */
         if (cipher->method >= RC4_MD5) {
             if (ppbloom_check((void *)nonce, nonce_len) == 1) {
                 LOGE("crypto: stream: repeat IV detected");
                 return CRYPTO_ERROR;
             }
+            ppbloom_add((void *)nonce, nonce_len);
+            cipher_ctx->init = 2;
         }
     }
 
@@ -551,7 +559,7 @@ stream_decrypt(buffer_t *ciphertext, cipher_ctx_t *cipher_ctx, size_t capacity)
         }
         crypto_stream_xor_ic((uint8_t *)plaintext->data,
                              (const uint8_t *)(ciphertext->data),
-                             (uint64_t)(ciphertext->len + padding),
+                             (uint64_t)ciphertext->len + padding,
                              (const uint8_t *)cipher_ctx->nonce,
                              cipher_ctx->counter / SODIUM_BLOCK_SIZE, cipher->key,
                              cipher->method);
@@ -573,20 +581,7 @@ stream_decrypt(buffer_t *ciphertext, cipher_ctx_t *cipher_ctx, size_t capacity)
     dump("CIPHER", ciphertext->data, ciphertext->len);
 #endif
 
-    // Add to bloom filter
-    if (cipher_ctx->init == 1) {
-        if (cipher->method >= RC4_MD5) {
-            if (ppbloom_check((void *)cipher_ctx->nonce, cipher->nonce_len) == 1) {
-                LOGE("crypto: stream: repeat IV detected");
-                return CRYPTO_ERROR;
-            }
-            ppbloom_add((void *)cipher_ctx->nonce, cipher->nonce_len);
-            cipher_ctx->init = 2;
-        }
-    }
-
-    brealloc(ciphertext, plaintext->len, capacity);
-    memcpy(ciphertext->data, plaintext->data, plaintext->len);
+    bswap_data(ciphertext, plaintext);
     ciphertext->len = plaintext->len;
 
     return CRYPTO_OK;

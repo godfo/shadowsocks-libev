@@ -111,7 +111,7 @@ static int new_value (json_state * state,
                       json_type type)
 {
    json_value * value;
-   int values_size;
+   unsigned long values_size;
 
    if (!state->first_pass)
    {
@@ -128,6 +128,9 @@ static int new_value (json_state * state,
             if (value->u.array.length == 0)
                break;
 
+            if (value->u.array.length > state->ulong_max / sizeof (json_value *))
+               return 0;
+
             if (! (value->u.array.values = (json_value **) json_alloc
                (state, value->u.array.length * sizeof (json_value *), 0)) )
             {
@@ -142,10 +145,16 @@ static int new_value (json_state * state,
             if (value->u.object.length == 0)
                break;
 
+            if (value->u.object.length > state->ulong_max / sizeof (*value->u.object.values))
+               return 0;
+
             values_size = sizeof (*value->u.object.values) * value->u.object.length;
 
+            if (value->object_mem_size > state->ulong_max - values_size)
+               return 0;
+
             if (! (value->u.object.values = (json_object_entry *) json_alloc
-                  (state, values_size + (CONV_PTR value->u.object.values), 0)) )
+                  (state, values_size + value->object_mem_size, 0)) )
             {
                return 0;
             }
@@ -304,7 +313,7 @@ json_value * json_parse_ex (json_settings * settings,
                   case 't':  string_add ('\t');  break;
                   case 'u':
 
-                    if (end - state.ptr < 4 || 
+                    if (end - state.ptr <= 4 ||
                         (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
                         (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
                         (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
@@ -321,7 +330,7 @@ json_value * json_parse_ex (json_settings * settings,
                     if ((uchar & 0xF800) == 0xD800) {
                         json_uchar uchar2;
                         
-                        if (end - state.ptr < 6 || (*++ state.ptr) != '\\' || (*++ state.ptr) != 'u' ||
+                        if (end - state.ptr <= 6 || (*++ state.ptr) != '\\' || (*++ state.ptr) != 'u' ||
                             (uc_b1 = hex_value (*++ state.ptr)) == 0xFF ||
                             (uc_b2 = hex_value (*++ state.ptr)) == 0xFF ||
                             (uc_b3 = hex_value (*++ state.ptr)) == 0xFF ||
@@ -412,7 +421,7 @@ json_value * json_parse_ex (json_settings * settings,
                   case json_object:
 
                      if (state.first_pass)
-                        (*(json_char **) &top->u.object.values) += string_length + 1;
+                        top->object_mem_size += string_length + 1;
                      else
                      {  
                         top->u.object.values [top->u.object.length].name
@@ -600,7 +609,7 @@ json_value * json_parse_ex (json_settings * settings,
 
                      case 't':
 
-                        if ((end - state.ptr) < 3 || *(++ state.ptr) != 'r' ||
+                        if ((end - state.ptr) <= 3 || *(++ state.ptr) != 'r' ||
                             *(++ state.ptr) != 'u' || *(++ state.ptr) != 'e')
                         {
                            goto e_unknown_value;
@@ -616,7 +625,7 @@ json_value * json_parse_ex (json_settings * settings,
 
                      case 'f':
 
-                        if ((end - state.ptr) < 4 || *(++ state.ptr) != 'a' ||
+                        if ((end - state.ptr) <= 4 || *(++ state.ptr) != 'a' ||
                             *(++ state.ptr) != 'l' || *(++ state.ptr) != 's' ||
                             *(++ state.ptr) != 'e')
                         {
@@ -631,7 +640,7 @@ json_value * json_parse_ex (json_settings * settings,
 
                      case 'n':
 
-                        if ((end - state.ptr) < 3 || *(++ state.ptr) != 'u' ||
+                        if ((end - state.ptr) <= 3 || *(++ state.ptr) != 'u' ||
                             *(++ state.ptr) != 'l' || *(++ state.ptr) != 'l')
                         {
                            goto e_unknown_value;
@@ -657,7 +666,7 @@ json_value * json_parse_ex (json_settings * settings,
                               {
                                  if ( (++ state.ptr) == end)
                                  {
-                                    b = 0;
+                                    b = 0;  /* NOLINT(clang-analyzer-deadcode.DeadStores) */
                                     break;
                                  }
 
@@ -769,9 +778,10 @@ json_value * json_parse_ex (json_settings * settings,
                      }
 
                      /* Overflow check for integer */
-                     long prev = top->u.integer;
-                     if ((prev > 0 && (prev > (LONG_MAX / 10) || (prev == (LONG_MAX / 10) && (b - '0') > (LONG_MAX % 10)))) ||
-                         (prev < 0 && (prev < (LONG_MIN / 10) || (prev == (LONG_MIN / 10) && -(b - '0') < (LONG_MIN % 10))))) {
+                     json_int_t prev = top->u.integer;
+                     /* Digits accumulate as a positive int64_t magnitude;
+                      * long is only 32 bits on LLP64 platforms such as Windows. */
+                     if (prev > (INT64_MAX / 10) || (prev == (INT64_MAX / 10) && (b - '0') > (INT64_MAX % 10))) {
                         sprintf(error, "%d:%d: Integer too large (overflow)", line_and_col);
                         goto e_failed;
                      }
@@ -780,7 +790,7 @@ json_value * json_parse_ex (json_settings * settings,
                   }
 
                   /* Overflow check for fraction */
-                  if (num_fraction > (LONG_MAX / 10) || (num_fraction == (LONG_MAX / 10) && (b - '0') > (LONG_MAX % 10))) {
+                  if (num_fraction > (INT64_MAX / 10) || (num_fraction == (INT64_MAX / 10) && (b - '0') > (INT64_MAX % 10))) {
                      sprintf(error, "%d:%d: Fraction too large (overflow)", line_and_col);
                      goto e_failed;
                   }
@@ -1032,4 +1042,3 @@ void json_value_free (json_value * value)
    settings.mem_free = default_free;
    json_value_free_ex (&settings, value);
 }
-

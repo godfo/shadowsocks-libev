@@ -25,6 +25,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
@@ -191,14 +192,9 @@ extern int use_syslog;
 
 #endif // if __ANDROID__
 
-// Workaround for "%z" in Windows printf
-#ifdef __MINGW32__
-#define SSIZE_FMT "%Id"
-#define SIZE_FMT "%Iu"
-#else
+/* C99 size formats; MinGW targets explicitly enable its ANSI stdio adapter. */
 #define SSIZE_FMT "%zd"
 #define SIZE_FMT "%zu"
-#endif
 
 #ifdef __MINGW32__
 // Override Windows built-in functions
@@ -218,9 +214,13 @@ void ERROR(const char *s);
 
 char *ss_itoa(int i);
 int ss_isnumeric(const char *s);
+int ss_parse_int(const char *s, int min_value, int max_value, int *out);
+int ss_parse_uint16_port(const char *s, uint16_t *out);
 int run_as(const char *user);
-void FATAL(const char *msg);
+void FATAL(const char *msg) __attribute__((noreturn));
 void usage(void);
+void cli_version(void);
+void cli_error(const char *message, int option, const char *token) __attribute__((noreturn));
 void daemonize(const char *path);
 char *ss_strndup(const char *s, size_t n);
 #ifdef HAVE_SETRLIMIT

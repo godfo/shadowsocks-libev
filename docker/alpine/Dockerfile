@@ -14,21 +14,14 @@ COPY . /tmp/repo
 RUN set -x \
  # Build environment setup
  && apk add --no-cache --virtual .build-deps \
-      autoconf \
-      automake \
       build-base \
-      c-ares-dev \
+      cmake \
       libcap \
-      libev-dev \
-      libtool \
-      libsodium-dev \
       linux-headers \
-      mbedtls-dev \
-      pcre-dev \
  # Build & install
  && cd /tmp/repo \
- && ./autogen.sh \
- && ./configure --prefix=/usr/local --disable-documentation \
+ && mkdir -p build && cd build \
+ && cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF -DSS_BUILD_STATIC_LIBRARY=OFF -DSS_BUILD_SHARED_LIBRARY=OFF -DCMAKE_BUILD_TYPE=Release \
  && make -j$(getconf _NPROCESSORS_ONLN) \
  && make install \
  && cd /usr/local/bin \

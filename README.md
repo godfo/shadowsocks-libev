@@ -1,21 +1,71 @@
-# shadowsocks-libev
+# shadowsocks-c
 
-[![Build Status](https://travis-ci.com/shadowsocks/shadowsocks-libev.svg?branch=master)](https://travis-ci.com/shadowsocks/shadowsocks-libev) [![Snap Status](https://snapcraft.io/shadowsocks-libev/badge.svg)](https://snapcraft.io/shadowsocks-libev)
+[![Build](https://github.com/shadowsocks/shadowsocks-c/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/shadowsocks/shadowsocks-c/actions/workflows/build.yml) [![Tests](https://github.com/shadowsocks/shadowsocks-c/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/shadowsocks/shadowsocks-c/actions/workflows/tests.yml) [![Portability](https://github.com/shadowsocks/shadowsocks-c/actions/workflows/portability.yml/badge.svg?branch=master)](https://github.com/shadowsocks/shadowsocks-c/actions/workflows/portability.yml)
 
 ## Intro
 
-[Shadowsocks-libev](https://shadowsocks.org) is a lightweight secured SOCKS5
+[shadowsocks-c](https://shadowsocks.org) is a lightweight secured SOCKS5
 proxy for embedded devices and low-end boxes.
 
 It is a port of [Shadowsocks](https://github.com/shadowsocks/shadowsocks)
 created by [@clowwindy](https://github.com/clowwindy), and maintained by
 [@madeye](https://github.com/madeye) and [@linusyang](https://github.com/linusyang).
 
-Current version: 3.3.5 | [Changelog](debian/changelog)
+Current version: 3.3.6 | [Changelog](debian/changelog)
+
+[CLI reference and configuration guide](https://shadowsocks.github.io/shadowsocks-c/)
+are generated from the source with Doxygen and published after updates to `master`.
+
+Use `--help` for grouped CLI options and `--version` for version information.
+See [CLI conventions](https://shadowsocks.github.io/shadowsocks-c/index.html#cli_conventions)
+for the long flags, short aliases, and configuration precedence.
+
+## Community
+
+See the [contribution guide](CONTRIBUTION.md) for development setup, testing,
+and pull request guidance.
+
+Everyone participating in this project is expected to follow our
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Project history and rename
+
+This repository began as **shadowsocks-libev**, the lightweight C implementation
+of Shadowsocks built around the libev event loop. It later entered a bug-fix-only
+maintenance phase, with new development directed toward
+[shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust).
+
+In September 2026, the C implementation was modernized with a focus on
+self-contained builds and portability. [The build modernization](https://github.com/shadowsocks/shadowsocks-c/pull/3050)
+bundled pinned dependency sources, removed several external dependencies, and
+added static-build validation across platforms.
+[The subsequent migration](https://github.com/shadowsocks/shadowsocks-c/pull/3051)
+replaced libev with libuv, added Windows IOCP and macOS kqueue support, expanded
+asynchronous runtime DNS coverage, and strengthened CI lint checks.
+
+The project and GitHub repository were renamed **shadowsocks-c** to reflect its
+continuing identity as a pure C implementation. This repository retains the
+shadowsocks-libev commit history and releases. The canonical repository is now
+[shadowsocks/shadowsocks-c](https://github.com/shadowsocks/shadowsocks-c).
+
+### Compatibility with shadowsocks-libev
+
+- Commands such as `ss-local` and `ss-server`, the `shadowsocks.h` API, and the
+  embedding library ABI remain compatible.
+- New builds provide `libshadowsocks-c` and the CMake/pkg-config package
+  `shadowsocks-c`. Legacy library filenames and the `shadowsocks-libev` package
+  lookup name remain available as compatibility aliases.
+- Existing configuration paths, distribution package names, and service names
+  are retained. References to `shadowsocks-libev` in the installation examples
+  below refer to those existing integrations.
+
+See [the modernization notes](docs/modernization.md) for build options and
+platform support, and [the performance measurements](docs/performance.md) for
+measured tradeoffs.
 
 ## Features
 
-Shadowsocks-libev is written in pure C and depends on [libev](http://software.schmorp.de/pkg/libev.html). It's designed
+shadowsocks-c is written in pure C and depends on [libuv](https://libuv.org/). It's designed
 to be a lightweight implementation of shadowsocks protocol, in order to keep the resource usage as low as possible.
 
 For a full list of feature comparison between different versions of shadowsocks,
@@ -23,25 +73,53 @@ refer to the [Wiki page](https://github.com/shadowsocks/shadowsocks/wiki/Feature
 
 ## Quick Start
 
-Snap is the recommended way to install the latest binaries.
+### Docker (recommended)
 
-### Install snap core
+Docker is the recommended way to run a server. The image contains the bundled,
+fully static C binaries and supports Linux AMD64 and ARM64, including Linux
+containers under Docker Desktop on macOS and Windows.
 
-https://snapcraft.io/core
+Create `config.json` and replace the example password with your own:
 
-### Install from snapcraft.io
-
-Stable channel:
-
-```bash
-sudo snap install shadowsocks-libev
+```json
+{
+  "server": "0.0.0.0",
+  "server_port": 8388,
+  "password": "replace-with-a-long-random-password",
+  "method": "aes-256-gcm",
+  "mode": "tcp_and_udp"
+}
 ```
 
-Edge channel:
+In a POSIX shell, start the server with the configuration mounted read-only:
 
-```bash
-sudo snap install shadowsocks-libev --edge
+```sh
+docker pull ghcr.io/shadowsocks/shadowsocks-c:latest
+docker run -d --name shadowsocks-c --restart unless-stopped \
+  --user "$(id -u):$(id -g)" --read-only --cap-drop=ALL \
+  --security-opt=no-new-privileges:true \
+  -p 8388:8388/tcp -p 8388:8388/udp \
+  --mount type=bind,src="$PWD/config.json",dst=/etc/shadowsocks-c/config.json,readonly \
+  ghcr.io/shadowsocks/shadowsocks-c:latest
 ```
+
+Using your user ID lets the container read a configuration file owned by you.
+View logs with `docker logs shadowsocks-c`; stop it with `docker stop shadowsocks-c`.
+Configure your Shadowsocks client with the server address, port, password and
+method above.
+
+`latest` follows `master`; version tags and `sha-<full-commit>` tags identify
+specific published builds. If the registry image is not yet available, build it
+from this checkout with the same name, then run the command above without pulling:
+
+```sh
+docker build -f docker/static/Dockerfile --target runtime \
+  -t ghcr.io/shadowsocks/shadowsocks-c:latest .
+```
+
+See [Docker image details](docker/static/README.md) for publishing, updates,
+client mode and build options. Existing Snap packages still use the
+`shadowsocks-libev` name and may predate this modernization.
 
 ## Installation
 
@@ -63,33 +141,69 @@ sudo snap install shadowsocks-libev --edge
     + [Run](#run)
     + [Run as client](#run-as-client)
 - [OpenWRT](#openwrt)
-- [OS X](#os-x)
+- [macOS](#macos)
 - [Windows (MinGW)](#windows-mingw)
 - [Docker](#docker)
 
 * * *
 
-### Initialise the build environment
+### Build from source (CMake)
 
-This repository uses submodules, so you should pull them before you start, using:
+The default build uses pinned sources included in this repository. It needs a
+C11 compiler, CMake 3.20+, and Make or Ninja. No Git submodules, dependency
+package installations, or network access are needed for configuration/build.
+Python is used by tests; optional documentation builds require Doxygen 1.9.4+.
 
-```bash
-git submodule update --init --recursive
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+ctest --test-dir build -L 'unit|vendor' --output-on-failure
+cmake --install build --prefix /your/install/prefix
 ```
 
-### Pre-build configure guide
+Programs are in `build/bin/`. Bundled binaries link to platform runtime
+libraries; they do not require separately installed third-party libraries.
 
-For a complete list of available configure-time option,
-try `configure --help`.
+Doxygen renders man pages and HTML documentation from CLI source comments. See [the documentation workflow](CONTRIBUTION.md#cli-and-manual-documentation)
+for validation and rendering commands.
+
+For a smaller build, use `-DSS_MINIMAL=ON`. It excludes PCRE2 regex, plugin
+subprocesses, the manager, and legacy stream ciphers. Minimal ACLs support
+IPv4/IPv6 CIDRs, `full:example.com` for exact domains, and
+`suffix:example.com` for the apex and subdomains. Literal matches ignore ASCII
+case and respect label boundaries. Unsupported regex rules are rejected.
+
+Distribution packages can use `-DSS_DEPENDENCY_MODE=system -DWITH_STATIC=OFF`
+with libuv, c-ares, libsodium, Mbed TLS 3.x, and PCRE2 development packages.
+Use `-DCMAKE_PREFIX_PATH=/opt/homebrew/opt/mbedtls@3` when needed on macOS.
+
+| Option | Default | Purpose |
+|---|---|---|
+| `SS_DEPENDENCY_MODE` | `bundled` | `bundled` sources or `system` libraries |
+| `WITH_STATIC` | `ON` | Link dependency archives; system mode also supports shared dependencies |
+| `SS_BUILD_EXECUTABLES` | `ON` | Command-line tools |
+| `SS_BUILD_STATIC_LIBRARY` | `ON` | Static embedding library with installed dependency archives |
+| `SS_BUILD_SHARED_LIBRARY` | `ON` | Shared embedding library |
+| `SS_MINIMAL` | `OFF` | Disable regex, plugins, manager, and legacy stream ciphers |
+| `SS_ENABLE_REGEX` / `SS_ENABLE_PLUGINS` / `SS_ENABLE_LEGACY` | `ON` | Individual compatibility features |
+| `WITH_DOC_MAN` / `WITH_DOC_HTML` | `OFF` | Generate documentation (requires Doxygen 1.9.4+) |
+| `SS_INSTALL_TOOLS` | `OFF` | Install platform shell helpers |
+| `ENABLE_SANITIZERS` | `OFF` | AddressSanitizer and UndefinedBehaviorSanitizer |
+| `ENABLE_CONNMARKTOS` / `ENABLE_NFTABLES` | `OFF` | Optional Linux firewall integrations |
+
+CMake consumers can use `find_package(shadowsocks-c CONFIG REQUIRED)` and
+link `shadowsocks::static`, `shadowsocks::shared`, or `shadowsocks::shadowsocks`
+(which prefers the shared library when installed). A pkg-config file is also
+installed. Dependency provenance and update instructions are in
+[third_party/README.md](third_party/README.md); modernization progress and
+validation limits are tracked in [docs/modernization.md](docs/modernization.md).
 
 ### Debian & Ubuntu
 
-#### Install from repository (not recommended)
+#### Distribution packages
 
-Shadowsocks-libev is available in the official repository for following distributions:
-
-* Debian 8 or higher, including oldoldstable (jessie), old stable (stretch), stable (buster), testing (bullseye) and unstable (sid)
-* Ubuntu 16.10 or higher
+Package availability and versions depend on the distribution release; packaged
+versions can differ from this source branch.
 
 ```bash
 sudo apt update
@@ -98,55 +212,15 @@ sudo apt install shadowsocks-libev
 
 #### Build deb package from source
 
-Supported distributions:
-
-* Debian 8, 9 or higher
-* Ubuntu 14.04 LTS, 16.04 LTS, 16.10 or higher
-
-You can build shadowsocks-libev and all its dependencies by script:
+Install the build dependencies listed in `debian/control`, then build the
+packages from this checkout:
 
 ```bash
-mkdir -p ~/build-area/
-cp ./scripts/build_deb.sh ~/build-area/
-cd ~/build-area
-./build_deb.sh
+dpkg-buildpackage -b -us -uc
 ```
 
-For older systems, building `.deb` packages is not supported.
-Please try to build and install directly from source. See the [Linux](#linux) section below.
-
-**Note for Debian 8 (Jessie) users to build their own deb packages**:
-
-We strongly encourage you to install shadowsocks-libev from `jessie-backports-sloppy`. If you insist on building from source, you will need to manually install libsodium from `jessie-backports-sloppy`, **NOT** libsodium in main repository.
-
-For more info about backports, you can refer [Debian Backports](https://backports.debian.org).
-
-``` bash
-cd shadowsocks-libev
-sudo sh -c 'printf "deb http://deb.debian.org/debian jessie-backports main" > /etc/apt/sources.list.d/jessie-backports.list'
-sudo sh -c 'printf "deb http://deb.debian.org/debian jessie-backports-sloppy main" >> /etc/apt/sources.list.d/jessie-backports.list'
-sudo apt-get install --no-install-recommends devscripts equivs
-mk-build-deps --root-cmd sudo --install --tool "apt-get -o Debug::pkgProblemResolver=yes --no-install-recommends -y"
-./autogen.sh && dpkg-buildpackage -b -us -uc
-cd ..
-sudo dpkg -i shadowsocks-libev*.deb
-```
-
-**Note for Debian 9 (Stretch) users to build their own deb packages**:
-
-We strongly encourage you to install shadowsocks-libev from `stretch-backports`. If you insist on building from source, you will need to manually install libsodium from `stretch-backports`, **NOT** libsodium in main repository.
-
-For more info about backports, you can refer [Debian Backports](https://backports.debian.org).
-
-``` bash
-cd shadowsocks-libev
-sudo sh -c 'printf "deb http://deb.debian.org/debian stretch-backports main" > /etc/apt/sources.list.d/stretch-backports.list'
-sudo apt-get install --no-install-recommends devscripts equivs
-mk-build-deps --root-cmd sudo --install --tool "apt-get -o Debug::pkgProblemResolver=yes --no-install-recommends -y"
-./autogen.sh && dpkg-buildpackage -b -us -uc
-cd ..
-sudo dpkg -i shadowsocks-libev*.deb
-```
+Debian packaging explicitly uses system libraries. For a bundled build without
+library development packages, use the [CMake instructions](#build-from-source-cmake).
 
 #### Configure and start the service
 
@@ -164,19 +238,10 @@ sudo systemctl start shadowsocks-libev      # for systemd
 
 ### Fedora & RHEL
 
-Supported distributions:
-
-* Recent Fedora versions (until EOL)
-* RHEL 6, 7 and derivatives (including CentOS, Scientific Linux)
-
-#### Build from source with centos
-
-If you are using CentOS 7, you need to install these prerequirements to build from source code:
-
-```bash
-yum install epel-release -y
-yum install gcc gettext autoconf libtool automake make pcre-devel asciidoc xmlto c-ares-devel libev-devel libsodium-devel mbedtls-devel -y
-```
+Use the bundled CMake build above with a C11 compiler, CMake 3.20+ and Make
+or Ninja. Older distribution toolchains may need upgrading. Autotools, gettext
+and separately installed crypto/event/DNS development libraries are not required
+for bundled mode.
 
 ### Archlinux & Manjaro
 
@@ -201,62 +266,20 @@ nix-env -iA nixpkgs.shadowsocks-libev
 
 ### Linux
 
-In general, you need the following build dependencies:
-
-* autotools (autoconf, automake, libtool)
-* gettext
-* pkg-config
-* libmbedtls
-* libsodium
-* libpcre3 (old pcre library)
-* libev
-* libc-ares
-* asciidoc (for documentation only)
-* xmlto (for documentation only)
-
-Notes: Fedora 26  libsodium version >= 1.0.12, so you can install via dnf install libsodium instead build from source.
-
-If your system is too old to provide libmbedtls and libsodium (later than **v1.0.8**), you will need to either install those libraries manually or upgrade your system.
-
-If your system provides with those libraries, you **should not** install them from source.You should jump to this section and install them from the distribution repository instead.
-
-For some of the distributions, you might install build dependencies like this:
+The default bundled build needs only a C11 compiler, CMake 3.20+ and Make
+or Ninja. For example, on Debian/Ubuntu:
 
 ```bash
-# Installation of basic build dependencies
-## Debian / Ubuntu
-sudo apt-get install --no-install-recommends gettext build-essential autoconf libtool libpcre3-dev asciidoc xmlto libev-dev libc-ares-dev automake libmbedtls-dev libsodium-dev pkg-config
-## CentOS / Fedora / RHEL
-sudo yum install gettext gcc autoconf libtool automake make asciidoc xmlto c-ares-devel libev-devel
-## Arch
-sudo pacman -S gettext gcc autoconf libtool automake make asciidoc xmlto c-ares libev
-
-# Installation of libsodium
-export LIBSODIUM_VER=1.0.16
-wget https://download.libsodium.org/libsodium/releases/old/libsodium-$LIBSODIUM_VER.tar.gz
-tar xvf libsodium-$LIBSODIUM_VER.tar.gz
-pushd libsodium-$LIBSODIUM_VER
-./configure --prefix=/usr && make
-sudo make install
-popd
-sudo ldconfig
-
-# Installation of MbedTLS
-export MBEDTLS_VER=2.6.0
-wget https://github.com/Mbed-TLS/mbedtls/archive/refs/tags/mbedtls-$MBEDTLS_VER.tar.gz
-tar xvf mbedtls-$MBEDTLS_VER.tar.gz
-pushd mbedtls-$MBEDTLS_VER
-make SHARED=1 CFLAGS="-O2 -fPIC"
-sudo make DESTDIR=/usr install
-popd
-sudo ldconfig
-
-# Start building
-./autogen.sh && ./configure && make
-sudo make install
+sudo apt-get install --no-install-recommends build-essential cmake
+cmake -S . -B build
+cmake --build build --parallel
+ctest --test-dir build -L 'unit|vendor' --output-on-failure
+sudo cmake --install build
 ```
 
-You may need to manually install missing softwares.
+Distribution packagers can install `libpcre2-dev libuv1-dev libc-ares-dev
+libmbedtls-dev libsodium-dev` and select `-DSS_DEPENDENCY_MODE=system
+-DWITH_STATIC=OFF`. Documentation additionally needs Doxygen 1.9.4 or newer.
 
 ### FreeBSD
 #### Install
@@ -307,52 +330,49 @@ Note that is simply a workaround, each time you upgrade the port your changes wi
 The OpenWRT project is maintained here:
 [openwrt-shadowsocks](https://github.com/shadowsocks/openwrt-shadowsocks).
 
-### OS X
-For OS X, use [Homebrew](http://brew.sh) to install or build.
+### macOS
 
-Install Homebrew:
-
-```bash
-ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-```
-Install shadowsocks-libev:
-
-```bash
-brew install shadowsocks-libev
-```
+Use the bundled CMake instructions above with Xcode Command Line Tools and
+CMake. The bundled executables require no Homebrew runtime libraries.
+For system mode, use Mbed TLS 3 and point `CMAKE_PREFIX_PATH` at its prefix.
 
 ### Windows (MinGW)
-To build Windows native binaries, the recommended method is to use Docker:
 
-* On Windows: double-click `make.bat` in `docker\mingw`
-* On Unix-like system:
+In an MSYS2 UCRT64 shell, install the toolchain and build native Windows programs:
 
-        cd shadowsocks-libev/docker/mingw
-        make
+```bash
+pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
+cmake -S . -B build -G Ninja
+cmake --build build --parallel
+ctest --test-dir build -L 'unit|vendor' --output-on-failure
+```
 
-A tarball with 32-bit and 64-bit binaries will be generated in the same directory.
+Unix hosts with Zig installed can cross-compile without a separate MinGW SDK:
 
-You could also manually use MinGW-w64 compilers to build in Unix-like shell (MSYS2/Cygwin), or cross-compile on Unix-like systems (Linux/MacOS). Please refer to build scripts in `docker/mingw`.
+```bash
+cmake -S . -B build-windows -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/zig-windows.cmake
+cmake --build build-windows --parallel
+```
 
-Currently you need to use a patched libev library for MinGW:
-
-* https://github.com/shadowsocks/libev/archive/mingw.zip
-
-Notice that TCP Fast Open (TFO) is only available on **Windows 10**, **1607** or later version (precisely, build >= 14393). If you are using **1709** (build 16299) or later version, you also need to run the following command in PowerShell/Command Prompt **as Administrator** and **reboot** to use TFO properly:
-
-        netsh int tcp set global fastopenfallback=disabled
+Cross-compilation does not run Windows tests. The portability workflow runs
+native UCRT64 tests and TCP/UDP relay checks on Windows. Bundled mode is required
+with a bundled libuv IOCP backend. MSVC remains a
+separate, unsupported milestone; configuration reports this explicitly.
+The historical Autotools scripts in `docker/mingw` are superseded by this build.
 
 ### Docker
 
-As you expect, simply pull the image and run.
-```
-docker pull shadowsocks/shadowsocks-libev
-docker run -e PASSWORD=<password> -p<server-port>:8388 -p<server-port>:8388/udp -d shadowsocks/shadowsocks-libev
-```
-
-More information about the image can be found [here](docker/alpine/README.md).
+Use the [recommended Docker installation](#docker-recommended) above.
+The image is `ghcr.io/shadowsocks/shadowsocks-c`; it accepts a JSON configuration
+file or the normal `ss-server` arguments. The historical `PASSWORD` environment
+variable wrapper belongs to the older Docker Hub image and is not used here.
+See [image and build details](docker/static/README.md).
 
 ## Usage
+
+Clients accept a combined remote endpoint: `--server example.com:8388` or
+`--server '[2001:db8::1]:8388'`. Repeat the flag for multiple servers. Legacy
+`-s HOST -p PORT` remains supported; an embedded port takes priority.
 
 For a detailed and complete list of all supported arguments,
 you may refer to the man pages of the applications, respectively.
@@ -367,7 +387,11 @@ you may refer to the man pages of the applications, respectively.
 
        -k <password>              Password of your remote server.
 
-       -m <encrypt_method>        Encrypt method: rc4-md5,
+       -m <encrypt_method>        Encrypt method:
+                                  2022-blake3-aes-128-gcm,
+                                  2022-blake3-aes-256-gcm,
+                                  2022-blake3-chacha20-poly1305,
+                                  rc4-md5,
                                   aes-128-gcm, aes-192-gcm, aes-256-gcm,
                                   aes-128-cfb, aes-192-cfb, aes-256-cfb,
                                   aes-128-ctr, aes-192-ctr, aes-256-ctr,
@@ -377,6 +401,21 @@ you may refer to the man pages of the applications, respectively.
                                   xchacha20-ietf-poly1305,
                                   salsa20, chacha20 and chacha20-ietf.
                                   The default cipher is chacha20-ietf-poly1305.
+
+                                  The 2022-blake3-* ciphers implement
+                                  Shadowsocks 2022 (SIP022) and are the
+                                  recommended choice. They take a
+                                  base64-encoded pre-shared key of exactly
+                                  the cipher's key size via -k, not a
+                                  password: generate one with
+                                  `openssl rand -base64 32` (or 16 for
+                                  2022-blake3-aes-128-gcm).
+
+       [--server-url <ss_url>]    Take the server address, port, cipher,
+                                  password and SIP003 plugin from a single
+                                  ss:// URL (SIP002 or the legacy form).
+                                  ss-local only. Options given later on the
+                                  command line override the URL's values.
 
        [-a <user>]                Run as another user.
 
@@ -450,9 +489,169 @@ you may refer to the man pages of the applications, respectively.
 
        [-v]                       Verbose mode.
 
-## Transparent proxy
+## Helper Scripts
+
+### ss-setup
+
+`ss-setup` is an interactive TUI (text user interface) tool for setting up shadowsocks-libev server and client configurations. It uses `whiptail` or `dialog` for the menu interface.
+
+It is installed automatically by `make install` and can also be run directly from `scripts/ss-setup.sh`.
+
+**Prerequisites:** `whiptail` or `dialog`, `openssl` (optional, for password generation)
+
+#### Server setup (with systemd service)
+
+Run as root for full functionality (config + systemd service installation):
+
+```bash
+sudo ss-setup
+```
+
+This launches an interactive menu that walks you through:
+1. Choosing a config instance name
+2. Setting the listen address and port (manual or random high port)
+3. Selecting an AEAD cipher (chacha20-ietf-poly1305, aes-256-gcm, etc.)
+4. Generating or entering a password
+5. Configuring timeout, network mode (TCP/UDP), and TCP Fast Open
+6. Optionally selecting a SIP003 plugin
+7. Installing and starting a systemd service
+
+The config is saved to `/etc/shadowsocks-libev/<name>.json` and a systemd template service `shadowsocks-libev-server@<name>.service` is created.
+
+At the end, it displays a `ss://` URI you can import into clients.
+
+#### Client config generation
+
+Select "Generate ss-local client config" from the main menu. The wizard prompts for the remote server address, port, cipher, password, and local SOCKS5 port, then writes a JSON config:
+
+```bash
+# Run without root to generate config in the current directory
+ss-setup
+# Select: client -> fill in server details -> save
+
+# Then start the client
+ss-local -c ~/ss-client.json
+```
+
+#### Config-only mode (non-root)
+
+When run without root, `ss-setup` skips service installation and plugin management, but still generates config files in the current directory:
+
+```bash
+ss-setup
+# Config saved to ./config.json (in current directory)
+# Start manually:
+ss-server -c ./config.json
+```
+
+#### Service management
+
+From the main menu, select "Manage running services" to start, stop, restart, enable/disable, or view logs for any configured instance:
+
+```
+sudo ss-setup
+# Select: service -> pick instance -> start/stop/restart/logs
+```
+
+#### Plugin installation
+
+Select "Install a SIP003 plugin" from the main menu (requires root). Supports automatic download of:
+- simple-obfs (build from source or package manager)
+- v2ray-plugin (GitHub release)
+- xray-plugin (GitHub release)
+- kcptun (GitHub release)
+- Custom plugin binary
+
+### ss-nat
+
+`ss-nat` is a helper script that sets up iptables NAT rules for `ss-redir` to provide transparent TCP/UDP redirection. Enable `-DSS_INSTALL_TOOLS=ON` to install it on Linux.
+
+**Prerequisites:** Linux with `iptables`, `ipset`, and optionally TPROXY kernel module for UDP
+
+#### Basic usage (TCP redirect)
+
+```bash
+# Start ss-redir first
+ss-redir -s YOUR_SERVER_IP -p 8388 -l 1080 -k PASSWORD -m chacha20-ietf-poly1305 -u
+
+# Set up NAT rules to redirect TCP traffic through ss-redir
+sudo ss-nat -s YOUR_SERVER_IP -l 1080
+```
+
+#### Enable UDP relay with TPROXY
+
+```bash
+sudo ss-nat -s YOUR_SERVER_IP -l 1080 -u
+```
+
+#### Apply rules to OUTPUT chain (proxy the local machine itself)
+
+```bash
+sudo ss-nat -s YOUR_SERVER_IP -l 1080 -u -o
+```
+
+#### Use separate TCP/UDP servers
+
+```bash
+sudo ss-nat -s TCP_SERVER_IP -l 1080 -S UDP_SERVER_IP -L 1080 -U
+```
+
+#### Bypass specific WAN IPs
+
+```bash
+sudo ss-nat -s YOUR_SERVER_IP -l 1080 -b "1.2.3.4 5.6.7.8"
+```
+
+#### Use a bypass IP list file
+
+```bash
+# Create a file with one IP/CIDR per line
+echo "1.2.3.0/24" > /etc/ss-bypass.list
+echo "5.6.7.0/24" >> /etc/ss-bypass.list
+
+sudo ss-nat -s YOUR_SERVER_IP -l 1080 -i /etc/ss-bypass.list
+```
+
+#### LAN access control
+
+```bash
+# Whitelist mode: only proxy traffic from these LAN IPs
+sudo ss-nat -s YOUR_SERVER_IP -l 1080 -a "w192.168.1.10 192.168.1.20"
+
+# Blacklist mode: proxy all LAN traffic except these IPs
+sudo ss-nat -s YOUR_SERVER_IP -l 1080 -a "b192.168.1.100"
+```
+
+#### Flush all rules
+
+```bash
+sudo ss-nat -f
+```
+
+#### Complete example: transparent proxy gateway
+
+Set up a Linux box as a transparent proxy gateway for the entire LAN:
+
+```bash
+# 1. Start ss-redir with UDP relay
+ss-redir -s YOUR_SERVER_IP -p 8388 -l 1080 -k PASSWORD \
+    -m chacha20-ietf-poly1305 -u -f /var/run/ss-redir.pid
+
+# 2. Set up NAT rules (TCP + UDP, apply to local OUTPUT too)
+sudo ss-nat -s YOUR_SERVER_IP -l 1080 -u -o -I eth0
+
+# 3. Point other devices' default gateway to this machine's LAN IP
+#    and set their DNS to a public resolver (e.g., 1.1.1.1 or 8.8.8.8)
+
+# To tear down:
+sudo ss-nat -f
+```
+
+## Transparent proxy (manual iptables)
 
 The latest shadowsocks-libev has provided a *redir* mode. You can configure your Linux-based box or router to proxy all TCP traffic transparently, which is handy if you use an OpenWRT-powered router.
+
+Note: For most use cases, [`ss-nat`](#ss-nat) above is simpler than writing iptables rules manually.
 
     # Create new chain
     iptables -t nat -N SHADOWSOCKS
